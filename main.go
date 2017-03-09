@@ -229,11 +229,6 @@ func NewCeilometerCollector() *ceilometerCollector {
 		panic(err)
 	}
 
-	client, err := openstack.NewTelemetryV2(provider, gophercloud.EndpointOpts{})
-	if err != nil {
-		panic(err)
-	}
-
 	lookupSvc := NewLookupService(provider)
 
 	allMetrics := *getMetrics(&lookupSvc)
@@ -253,12 +248,12 @@ func NewCeilometerCollector() *ceilometerCollector {
 
 			"totalScrapeDuration": prometheus.NewDesc(makeFQName("total_scrape_duration_ns"), "Time taken for entire scrape", nil, nil),
 		},
-		client: client,
+		opts: &opts,
 	}
 }
 
 type ceilometerCollector struct {
-	client      *gophercloud.ServiceClient
+	opts        *gophercloud.AuthOptions
 	metrics     map[string]ceilometerMetric
 	metaMetrics map[string]*prometheus.Desc
 }
@@ -281,8 +276,19 @@ func (c *ceilometerCollector) Collect(ch chan<- prometheus.Metric) {
 	t := time.Now()
 	result := make(chan scrapeStats)
 	defer close(result)
+
+	provider, err := openstack.AuthenticatedClient(*c.opts)
+	if err != nil {
+		panic(err)
+	}
+
+	client, err := openstack.NewTelemetryV2(provider, gophercloud.EndpointOpts{})
+	if err != nil {
+		panic(err)
+	}
+
 	for resourceLabel, metric := range c.metrics {
-		go scrape(resourceLabel, metric, c.client, ch, result)
+		go scrape(resourceLabel, metric, client, ch, result)
 	}
 	for _ = range c.metrics {
 		scrapeStats := <-result
