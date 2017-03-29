@@ -149,7 +149,7 @@ func NewLookupService(provider *gophercloud.ProviderClient) LookupService {
 	})
 
 	serverNameCache := make(map[string]string)
-	serverPager := servers.List(serverClient, servers.ListOpts{})
+	serverPager := servers.List(serverClient, servers.ListOpts{AllTenants: true})
 	serverPager.EachPage(func(page pagination.Page) (bool, error) {
 		serverList, err := servers.ExtractServers(page)
 		if err != nil {
