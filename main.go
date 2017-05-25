@@ -116,9 +116,11 @@ func displayMetricsList() {
 
 type LookupService struct {
 	poolNameCache map[string]string
+	poolTenantCache map[string]string
 	networkClient *gophercloud.ServiceClient
 
 	instanceNameCache map[string]string
+	instanceTenantCache map[string]string
 	serverClient      *gophercloud.ServiceClient
 }
 
@@ -136,6 +138,7 @@ func NewLookupService(provider *gophercloud.ProviderClient) LookupService {
 	log.Debug("Populating guid lookup caches")
 
 	poolNameCache := make(map[string]string)
+	poolTenantCache := make(map[string]string)
 	poolPager := pools.List(networkClient, pools.ListOpts{})
 	poolPager.EachPage(func(page pagination.Page) (bool, error) {
 		poolList, err := pools.ExtractPools(page)
@@ -144,11 +147,13 @@ func NewLookupService(provider *gophercloud.ProviderClient) LookupService {
 		}
 		for _, pool := range poolList {
 			poolNameCache[pool.ID] = pool.Name
+			poolTenantCache[pool.ID] = pool.TenantID
 		}
 		return true, nil
 	})
 
 	serverNameCache := make(map[string]string)
+	serverTenantCache := make(map[string]string)
 	serverPager := servers.List(serverClient, servers.ListOpts{AllTenants: true})
 	serverPager.EachPage(func(page pagination.Page) (bool, error) {
 		serverList, err := servers.ExtractServers(page)
@@ -157,6 +162,7 @@ func NewLookupService(provider *gophercloud.ProviderClient) LookupService {
 		}
 		for _, server := range serverList {
 			serverNameCache[server.ID] = server.Name
+			serverTenantCache[server.ID] = server.TenantID
 		}
 		return true, nil
 	})
@@ -164,11 +170,35 @@ func NewLookupService(provider *gophercloud.ProviderClient) LookupService {
 	log.Debugf("Finished populating caches. %d pools and %d instances prepared.", len(poolNameCache), len(serverNameCache))
 
 	return LookupService{
-		networkClient:     networkClient,
-		poolNameCache:     poolNameCache,
-		serverClient:      serverClient,
-		instanceNameCache: serverNameCache,
+		networkClient:       networkClient,
+		poolNameCache:       poolNameCache,
+		poolTenantCache:     poolTenantCache,
+		serverClient:        serverClient,
+		instanceNameCache:   serverNameCache,
+		instanceTenantCache: serverTenantCache,
 	}
+}
+
+func (this *LookupService) lookupPoolTenant(poolId string) string {
+	if poolId == "" {
+		return "UNKNOWN"
+	}
+
+	var tenant string
+	if tenant, ok := this.poolTenantCache[poolId]; ok {
+		return tenant
+	}
+
+	result := pools.Get(this.networkClient, poolId)
+	pool, err := result.Extract()
+	if err != nil {
+		log.Warnf("Failure while looking up pool id %q", poolId)
+		tenant = "UNKNOWN"
+	} else {
+		tenant = pool.TenantID
+	}
+	this.poolTenantCache[poolId] = tenant
+	return tenant
 }
 
 func (this *LookupService) lookupPool(poolId string) string {
@@ -191,6 +221,28 @@ func (this *LookupService) lookupPool(poolId string) string {
 	}
 	this.poolNameCache[poolId] = name
 	return name
+}
+
+func (this *LookupService) lookupInstanceTenant(instanceId string) string {
+	if instanceId == "" {
+		return "UNKNOWN"
+	}
+
+	var tenant string
+	if tenant, ok := this.instanceTenantCache[instanceId]; ok {
+		return tenant
+	}
+
+	result := servers.Get(this.serverClient, instanceId)
+	instance, err := result.Extract()
+	if err != nil {
+		log.Warnf("Failure while looking up instance id %q", instanceId)
+		tenant = "UNKNOWN"
+	} else {
+		tenant = instance.TenantID
+	}
+	this.instanceTenantCache[instanceId] = tenant
+	return tenant
 }
 
 func (this *LookupService) lookupInstance(instanceId string) string {
